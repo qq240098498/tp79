@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { load, save, MAX_TRANSLATION_LENGTH, MAX_NOTE_LENGTH, MAX_OPERATOR_LENGTH, UNNAMED } = require('./store');
+const { load, save, MAX_TRANSLATION_LENGTH, MAX_NOTE_LENGTH, MAX_OPERATOR_LENGTH, RECYCLE_RETENTION_MS, UNNAMED } = require('./store');
 const { ApiError, pickText } = require('./errors');
 
 const MODULE_PATTERN = /^[a-z][a-z0-9-]{0,29}$/;
@@ -120,7 +120,17 @@ function listEntries(options) {
   });
   const modules = Object.keys(counts).sort().map((name) => ({ module: name, count: counts[name] }));
 
-  return { entries: sortEntries(list), modules };
+  // 把最近一次恢复记录挂到对应文案上，页面据此显示“何时由谁恢复、恢复后用的哪个键”
+  const latestRestore = new Map();
+  (data.history || []).forEach((record) => {
+    if (record.entryId) latestRestore.set(record.entryId, record);
+  });
+  const entriesWithRestore = sortEntries(list).map((item) => {
+    const record = latestRestore.get(item.id);
+    return record ? { ...item, restored: record } : item;
+  });
+
+  return { entries: entriesWithRestore, modules, history: data.history || [] };
 }
 
 function getEntry(id) {
@@ -181,13 +191,26 @@ function updateEntry(id, payload) {
   return found;
 }
 
-function deleteEntry(id) {
+// 删除不再直接抹掉：整条文案连译文一起搬进回收站，记下删除人与自动清除时间
+function deleteEntry(id, payload) {
+  const input = payload && typeof payload === 'object' ? payload : {};
   const data = load();
   const index = data.entries.findIndex((item) => item.id === id);
   if (index === -1) throw new ApiError(404, 'ENTRY_NOT_FOUND', '这条文案不存在或已被删除', '');
   const [removed] = data.entries.splice(index, 1);
+  // 删除人留空时记“未署名”，不能沿用上一位编辑者，否则会把删除误记到别人头上
+  const operator = validateOperator(input.operator, UNNAMED);
+  const deletedAt = new Date().toISOString();
+  const trashed = {
+    ...removed,
+    deletedBy: operator,
+    deletedAt,
+    expireAt: new Date(new Date(deletedAt).getTime() + RECYCLE_RETENTION_MS).toISOString(),
+  };
+  data.trash = data.trash || [];
+  data.trash.unshift(trashed);
   save(data);
-  return { id: removed.id, key: removed.key };
+  return { id: removed.id, key: removed.key, expireAt: trashed.expireAt };
 }
 
 module.exports = {

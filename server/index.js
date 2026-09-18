@@ -76,7 +76,20 @@ app.patch('/api/entries/:id', (req, res) => {
 
 app.delete('/api/entries/:id', (req, res) => {
   try {
-    res.json(api.deleteEntry(req.params.id));
+    res.json(api.deleteEntry(req.params.id, req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 回收站：删除的文案先进这里，到期自动清除，期间可以查看与恢复
+app.get('/api/trash', (_req, res) => {
+  res.json(api.listTrash());
+});
+
+app.post('/api/trash/:id/restore', (req, res) => {
+  try {
+    res.json(api.restoreTrashItem(req.params.id, req.body));
   } catch (err) {
     sendError(res, err);
   }
@@ -90,9 +103,10 @@ app.use('/api', (_req, res) => {
 // 统一错误出口：业务异常按状态码与错误码返回，其余按服务异常处理
 function sendError(res, err) {
   if (err instanceof api.ApiError) {
-    return res.status(err.status).json({
-      error: { code: err.code, message: err.message, field: err.field },
-    });
+    const body = { error: { code: err.code, message: err.message, field: err.field } };
+    // 恢复时的键冲突要把占位者告诉页面，操作者才能决定换键还是放弃
+    if (err.conflict) body.error.conflict = err.conflict;
+    return res.status(err.status).json(body);
   }
   console.error('[tp79] 处理请求时出现未预期的问题：', err);
   return res.status(500).json({

@@ -376,3 +376,200 @@ label.full input {
   display: flex;
   gap: 10px;
 }
+
+/* 回收站：每条删除的文案一张只读卡片 */
+.trash-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trash-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #fbfcfd;
+}
+
+.trash-card.is-expiring {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.trash-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trash-card-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trash-card-title .module-badge {
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.trash-meta {
+  margin: 6px 0 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.trash-meta .countdown {
+  color: #8a5a00;
+  font-weight: 600;
+}
+
+.trash-translations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.trash-translation-row {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.trash-translation-row .lang-code {
+  flex: 0 0 70px;
+  color: var(--ink-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.trash-translation-row .lang-value {
+  flex: 1;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.trash-translation-row .lang-empty {
+  color: #a6b0bb;
+  font-style: italic;
+}
+
+.trash-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+
+.readonly-tip {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* 正常列表里恢复回来的文案带一个标记 */
+.restored-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #eefaf3;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 400;
+  cursor: help;
+}
+
+.history-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.history-block h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.history-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.history-list .mono {
+  color: var(--ink);
+}
+
+.history-list .renamed {
+  color: var(--accent);
+}
+
+/* 恢复冲突弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 41, 51, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 20px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.modal-text {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.modal label input {
+  width: 100%;
+}
+
+.modal-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.modal-error.hidden {
+  display: none;
+}
+
+.modal .form-actions {
+  justify-content: flex-end;
+}

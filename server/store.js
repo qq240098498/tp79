@@ -10,6 +10,11 @@ const MAX_NOTE_LENGTH = 200;
 const MAX_OPERATOR_LENGTH = 40;
 const UNNAMED = '未署名';
 
+// 回收站保留时长：删除后满 7 天自动清除，到期前随时可以恢复
+const RECYCLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+// 恢复记录只留最近若干条，避免数据文件无限变长
+const MAX_HISTORY_RECORDS = 200;
+
 // 初始数据：四种语言、四个模块的十五条文案。繁体与英语故意留了几条没译，
 // 日语整条语言处于停用状态，英语里还有一条把 {minutes} 占位符写丢了
 function seedData() {
@@ -268,6 +273,44 @@ function normalizeEntry(item, fallbackIndex) {
   };
 }
 
+// 回收站条目：在文案结构之外多记删除人、删除时间与自动清除时间
+function normalizeTrashItem(item, fallbackIndex) {
+  const source = item && typeof item === 'object' ? item : {};
+  const entry = normalizeEntry(source.entry && typeof source.entry === 'object' ? source.entry : source, fallbackIndex);
+  const deletedAt = typeof source.deletedAt === 'string' && source.deletedAt
+    ? source.deletedAt
+    : new Date().toISOString();
+  const expireAt = typeof source.expireAt === 'string' && source.expireAt
+    ? source.expireAt
+    : new Date(new Date(deletedAt).getTime() + RECYCLE_RETENTION_MS).toISOString();
+  return {
+    ...entry,
+    deletedBy: typeof source.deletedBy === 'string' && source.deletedBy.trim() ? source.deletedBy.trim() : UNNAMED,
+    deletedAt,
+    expireAt,
+  };
+}
+
+// 恢复记录：恢复后用的哪个键、由谁在什么时候恢复，都留痕在数据里
+function normalizeHistoryRecord(item, fallbackIndex) {
+  const source = item && typeof item === 'object' ? item : {};
+  const restoredAt = typeof source.restoredAt === 'string' && source.restoredAt
+    ? source.restoredAt
+    : new Date().toISOString();
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `restore-${fallbackIndex + 1}`,
+    entryId: typeof source.entryId === 'string' ? source.entryId : '',
+    module: typeof source.module === 'string' && source.module.trim() ? source.module.trim() : '',
+    key: typeof source.key === 'string' && source.key.trim() ? source.key.trim() : '',
+    // 恢复时换过键的话，这里记下删除前原来的键；没换则与 key 相同
+    restoredFromKey: typeof source.restoredFromKey === 'string' && source.restoredFromKey.trim()
+      ? source.restoredFromKey.trim()
+      : (typeof source.key === 'string' ? source.key.trim() : ''),
+    restoredBy: typeof source.restoredBy === 'string' && source.restoredBy.trim() ? source.restoredBy.trim() : UNNAMED,
+    restoredAt,
+  };
+}
+
 // 整份数据保证 languages 与 entries 结构一致；默认语言有且只有一个
 function normalize(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
@@ -311,7 +354,31 @@ function normalize(raw) {
         })
     : [];
 
-  return { languages: dedupedLanguages, entries };
+  // 回收站里的译文也只保留当前仍登记的语言；已到自动清除时间的条目直接丢弃
+  const trash = Array.isArray(source.trash)
+    ? source.trash
+        .map((item, index) => {
+          const normalized = normalizeTrashItem(item, index);
+          const kept = {};
+          Object.keys(normalized.translations).forEach((code) => {
+            if (known.has(code)) kept[code] = normalized.translations[code];
+          });
+          return { ...normalized, translations: kept };
+        })
+        .filter((item) => {
+          const expire = new Date(item.expireAt).getTime();
+          return item.id && (Number.isNaN(expire) || expire > Date.now());
+        })
+    : [];
+
+  const history = Array.isArray(source.history)
+    ? source.history.map((item, index) => normalizeHistoryRecord(item, index)).filter((item) => item.restoredAt)
+    : [];
+  // 只保留最近的恢复记录，按恢复时间倒序截一段再正序落盘
+  history.sort((a, b) => (a.restoredAt < b.restoredAt ? 1 : -1));
+  const trimmedHistory = history.slice(0, MAX_HISTORY_RECORDS).reverse();
+
+  return { languages: dedupedLanguages, entries, trash, history: trimmedHistory };
 }
 
 // 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
@@ -320,7 +387,7 @@ function load() {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return normalize(JSON.parse(raw));
   } catch (err) {
-    const data = seedData();
+    const data = normalize(seedData());
     save(data);
     return data;
   }
@@ -341,9 +408,13 @@ module.exports = {
   normalize,
   normalizeLanguage,
   normalizeEntry,
+  normalizeTrashItem,
+  normalizeHistoryRecord,
   MAX_TRANSLATION_LENGTH,
   MAX_NOTE_LENGTH,
   MAX_OPERATOR_LENGTH,
+  MAX_HISTORY_RECORDS,
+  RECYCLE_RETENTION_MS,
   UNNAMED,
   DATA_FILE,
 };

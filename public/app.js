@@ -4,7 +4,10 @@ const state = {
   languages: [],
   entries: [],
   modules: [],
+  trash: [],
+  history: [],
   editingId: '',
+  restoreTarget: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -26,6 +29,7 @@ async function request(path, options) {
     const failure = new Error(error.message || `请求失败（状态码 ${res.status}）`);
     failure.code = error.code || '';
     failure.field = error.field || '';
+    failure.conflict = error.conflict || null;
     throw failure;
   }
   return payload;
@@ -73,6 +77,32 @@ function formatTime(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// 回收站条目距离自动清除还剩多久：大于一天按天，小于一天按时分
+function formatCountdown(expireAt) {
+  const target = new Date(expireAt).getTime();
+  if (Number.isNaN(target)) return '剩余时间未知';
+  const diff = target - Date.now();
+  if (diff <= 0) return '即将清除';
+  const minutes = Math.floor(diff / 60000);
+  const days = Math.floor(minutes / (60 * 24));
+  const hours = Math.floor((minutes % (60 * 24)) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `还剩 ${days} 天 ${hours} 小时`;
+  if (hours > 0) return `还剩 ${hours} 小时 ${mins} 分钟`;
+  return `还剩 ${Math.max(mins, 1)} 分钟`;
+}
+
+// 倒计时的刷新定时器，切换数据时只保留一个
+let countdownTimer = null;
+function startCountdown() {
+  if (countdownTimer) return;
+  countdownTimer = window.setInterval(() => {
+    document.querySelectorAll('[data-expire-at]').forEach((node) => {
+      node.textContent = formatCountdown(node.dataset.expireAt);
+    });
+  }, 60 * 1000);
+}
+
 // 操作者名字记在浏览器里，刷新之后还在，保存时随请求一起带上
 const OPERATOR_KEY = 'i18n-workbench-operator';
 
@@ -113,8 +143,16 @@ async function loadEntries() {
   const payload = await request(`/api/entries${query ? `?${query}` : ''}`);
   state.entries = payload.entries || [];
   state.modules = payload.modules || [];
+  state.history = payload.history || [];
   renderModules();
   renderEntries();
+  renderHistory();
+}
+
+async function loadTrash() {
+  const payload = await request('/api/trash');
+  state.trash = payload.trash || [];
+  renderTrash();
 }
 
 function renderModules() {
@@ -188,9 +226,18 @@ function renderEntries() {
       if (!value.trim()) return '<td class="missing">待翻译</td>';
       return `<td title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
     });
+    let restoreTag = '';
+    if (item.restored) {
+      const record = item.restored;
+      const renamed = record.restoredFromKey && record.restoredFromKey !== record.key
+        ? `，恢复前的键为 ${record.restoredFromKey}`
+        : '';
+      const tip = `由 ${record.restoredBy} 于 ${formatTime(record.restoredAt)} 恢复，恢复后键为 ${record.key}${renamed}`;
+      restoreTag = `<span class="restored-tag" title="${escapeHtml(tip)}">已恢复</span>`;
+    }
     return `<tr>
       <td class="mono">${escapeHtml(item.module)}</td>
-      <td class="mono">${escapeHtml(item.key)}</td>
+      <td class="mono">${escapeHtml(item.key)}${restoreTag}</td>
       ${cells.join('')}
       <td class="note-cell">${escapeHtml(item.note)}</td>
       <td>${escapeHtml(item.updatedBy)}</td>
@@ -202,6 +249,70 @@ function renderEntries() {
     </tr>`;
   }).join('');
   el('entry-empty').classList.toggle('hidden', state.entries.length > 0);
+}
+
+// 回收站内容只读：一张卡片里看清原模块与键、全部译文、删除人/时间与剩余保留时间
+function renderTrash() {
+  const box = el('trash-list');
+  el('trash-count').textContent = state.trash.length ? `（${state.trash.length} 条）` : '';
+  box.innerHTML = state.trash.map((item) => {
+    // 全部译文：按当前登记的语言逐条列出，已删掉的语言槽位不会出现在数据里
+    const extraCodes = Object.keys(item.translations)
+      .filter((code) => !state.languages.some((language) => language.code === code));
+    const rows = state.languages.map((language) => {
+      const value = item.translations[language.code];
+      if (value === undefined) {
+        return `<div class="trash-translation-row"><span class="lang-code">${escapeHtml(language.code)}</span><span class="lang-value lang-empty">未登记</span></div>`;
+      }
+      if (!value.trim()) {
+        return `<div class="trash-translation-row"><span class="lang-code">${escapeHtml(language.code)}</span><span class="lang-value lang-empty">待翻译</span></div>`;
+      }
+      return `<div class="trash-translation-row"><span class="lang-code">${escapeHtml(language.code)}</span><span class="lang-value">${escapeHtml(value)}</span></div>`;
+    }).concat(extraCodes.map((code) => {
+      const value = item.translations[code];
+      const text = value.trim() ? value : '待翻译';
+      return `<div class="trash-translation-row"><span class="lang-code">${escapeHtml(code)}</span><span class="lang-value${value.trim() ? '' : ' lang-empty'}">${escapeHtml(text)}</span></div>`;
+    }));
+
+    const remaining = new Date(item.expireAt).getTime() - Date.now();
+    const expiring = remaining >= 0 && remaining < 24 * 60 * 60 * 1000;
+    return `<div class="trash-card${expiring ? ' is-expiring' : ''}">
+      <div class="trash-card-head">
+        <div class="trash-card-title">
+          <span class="module-badge">${escapeHtml(item.module)}</span>
+          <span class="mono">${escapeHtml(item.key)}</span>
+        </div>
+      </div>
+      <div class="trash-meta">
+        <span>由 <strong>${escapeHtml(item.deletedBy)}</strong> 于 ${escapeHtml(formatTime(item.deletedAt))} 删除</span>
+        <span class="countdown" data-expire-at="${escapeHtml(item.expireAt)}">${escapeHtml(formatCountdown(item.expireAt))}</span>
+      </div>
+      <div class="trash-translations">${rows.join('')}</div>
+      ${item.note ? `<div class="trash-meta"><span>备注：${escapeHtml(item.note)}</span></div>` : ''}
+      <div class="trash-card-foot">
+        <button type="button" data-trash-restore="${escapeHtml(item.id)}">恢复这条文案</button>
+        <span class="readonly-tip">回收站内容只读，不能在这里编辑</span>
+      </div>
+    </div>`;
+  }).join('');
+  el('trash-empty').classList.toggle('hidden', state.trash.length > 0);
+  startCountdown();
+}
+
+// 恢复记录：最近的在前，换过键的把原键与新键都标出来
+function renderHistory() {
+  const list = el('restore-history');
+  const records = state.history.slice().reverse();
+  list.innerHTML = records.map((record) => {
+    const renamed = record.restoredFromKey && record.restoredFromKey !== record.key
+      ? `<span class="renamed">原键 ${escapeHtml(record.restoredFromKey)} → </span>`
+      : '';
+    return `<li>${escapeHtml(formatTime(record.restoredAt))}，${escapeHtml(record.restoredBy)} 恢复了
+      <span class="mono">${escapeHtml(record.module)}</span> 模块下的
+      ${renamed}<span class="mono">${escapeHtml(record.key)}</span>
+    </li>`;
+  }).join('');
+  el('history-empty').classList.toggle('hidden', records.length > 0);
 }
 
 function openEntryForm(entry) {
@@ -321,18 +432,68 @@ document.addEventListener('click', async (event) => {
   if (node.dataset.entryDelete) {
     clearNotice();
     const found = state.entries.find((item) => item.id === node.dataset.entryDelete);
-    if (!window.confirm(`确定删除文案 ${found ? found.key : ''} 吗？`)) return;
+    if (!window.confirm(`确定删除文案 ${found ? found.key : ''} 吗？删除后会先进回收站，7 天内还能恢复。`)) return;
     try {
-      await request(`/api/entries/${encodeURIComponent(node.dataset.entryDelete)}`, { method: 'DELETE' });
+      await request(`/api/entries/${encodeURIComponent(node.dataset.entryDelete)}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ operator: currentOperator() }),
+      });
       if (state.editingId === node.dataset.entryDelete) closeEntryForm();
-      notify('文案已删除', 'ok');
+      notify('文案已移入回收站', 'ok');
       await loadEntries();
       await loadLanguages();
+      await loadTrash();
     } catch (err) {
       notify(err.message, 'error');
     }
+    return;
+  }
+
+  if (node.dataset.trashRestore) {
+    clearNotice();
+    await restoreFromTrash(node.dataset.trashRestore, '');
   }
 });
+
+// 发起恢复；newKey 为空表示用删除前的原键。冲突时服务端会把占位者带回来
+async function restoreFromTrash(trashId, newKey) {
+  const target = state.trash.find((item) => item.id === trashId);
+  const payload = { operator: currentOperator() };
+  if (newKey) payload.key = newKey;
+  try {
+    await request(`/api/trash/${encodeURIComponent(trashId)}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    const keyText = newKey || (target ? target.key : '');
+    notify(`文案已恢复：${keyText}`, 'ok');
+    await loadEntries();
+    await loadLanguages();
+    await loadTrash();
+  } catch (err) {
+    if (err.code === 'RESTORE_KEY_CONFLICT' && err.conflict) {
+      openRestoreModal(target, err.conflict, err.message);
+    } else {
+      notify(err.message, 'error');
+    }
+  }
+}
+
+// 冲突弹窗：当场指出被谁占了，操作者可以换键重试，也可以放弃
+function openRestoreModal(target, conflict, message) {
+  state.restoreTarget = target;
+  el('restore-conflict-text').textContent = message;
+  el('restore-new-key').value = '';
+  el('restore-error').className = 'modal-error hidden';
+  el('restore-error').textContent = '';
+  el('restore-modal').classList.remove('hidden');
+  el('restore-new-key').focus();
+}
+
+function closeRestoreModal() {
+  state.restoreTarget = null;
+  el('restore-modal').classList.add('hidden');
+}
 
 el('language-form').addEventListener('submit', submitLanguage);
 el('entry-form').addEventListener('submit', submitEntry);
@@ -353,7 +514,7 @@ el('filter-reset').addEventListener('click', () => {
 el('entry-refresh').addEventListener('click', () => {
   clearNotice();
   loadLanguages()
-    .then(loadEntries)
+    .then(() => Promise.all([loadEntries(), loadTrash()]))
     .catch((err) => notify(err.message, 'error'));
 });
 el('filter-module').addEventListener('change', () => {
@@ -363,9 +524,66 @@ el('operator').addEventListener('change', () => {
   window.localStorage.setItem(OPERATOR_KEY, currentOperator());
 });
 
+el('trash-refresh').addEventListener('click', () => {
+  clearNotice();
+  loadTrash().catch((err) => notify(err.message, 'error'));
+});
+
+el('restore-cancel').addEventListener('click', () => {
+  closeRestoreModal();
+  clearNotice();
+});
+
+el('restore-confirm').addEventListener('click', async () => {
+  const target = state.restoreTarget;
+  if (!target) return;
+  const nextKey = el('restore-new-key').value.trim();
+  if (!nextKey) {
+    const box = el('restore-error');
+    box.textContent = '请填写一个新的文案键，或者点“放弃恢复”';
+    box.className = 'modal-error';
+    return;
+  }
+  await submitRestore(target.id, nextKey);
+});
+
+// 在弹窗里回车等同确认
+el('restore-new-key').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    el('restore-confirm').click();
+  }
+});
+
+async function submitRestore(trashId, nextKey) {
+  const errorBox = el('restore-error');
+  try {
+    await request(`/api/trash/${encodeURIComponent(trashId)}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ operator: currentOperator(), key: nextKey }),
+    });
+    closeRestoreModal();
+    notify(`文案已用新键 ${nextKey} 恢复`, 'ok');
+    await loadEntries();
+    await loadLanguages();
+    await loadTrash();
+  } catch (err) {
+    if (err.code === 'RESTORE_KEY_CONFLICT' && err.conflict) {
+      // 换的键也被占了：留在弹窗里，把新的冲突说明展示出来继续选
+      errorBox.textContent = err.message;
+      errorBox.className = 'modal-error';
+      el('restore-new-key').value = '';
+    } else {
+      errorBox.textContent = err.message;
+      errorBox.className = 'modal-error';
+    }
+    el('restore-new-key').focus();
+  }
+}
+
 // 页面打开时先把语言与文案拉一遍，语言决定文案表格里有哪些列
 restoreOperator();
 loadHealth();
 loadLanguages()
-  .then(loadEntries)
+  .then(() => Promise.all([loadEntries(), loadTrash()]))
   .catch((err) => notify(err.message, 'error'));

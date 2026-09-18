@@ -91,7 +91,40 @@
         </div>
       </form>
     </section>
+
+    <section class="panel" id="trash-panel">
+      <div class="panel-head">
+        <h2>回收站 <span class="panel-tip" id="trash-count"></span></h2>
+        <div class="filters">
+          <button type="button" id="trash-refresh" class="ghost">刷新</button>
+        </div>
+      </div>
+      <div class="panel-tip">删除的文案会先进入回收站，保留 7 天，到期自动清除；期间内容只读，可以恢复，不能在回收站里编辑。</div>
+      <div id="trash-list" class="trash-list"></div>
+      <p class="empty-tip hidden" id="trash-empty">回收站是空的</p>
+
+      <div class="history-block">
+        <h3>恢复记录</h3>
+        <ul class="history-list" id="restore-history"></ul>
+        <p class="empty-tip hidden" id="history-empty">还没有恢复过文案</p>
+      </div>
+    </section>
   </main>
+
+  <div class="modal-mask hidden" id="restore-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="restore-modal-title">
+      <h3 id="restore-modal-title">恢复遇到键冲突</h3>
+      <p class="modal-text" id="restore-conflict-text"></p>
+      <label data-field="restoreKey">换一个文案键再恢复
+        <input id="restore-new-key" placeholder="例如 home.banner.title.back" maxlength="120">
+      </label>
+      <p class="modal-error hidden" id="restore-error"></p>
+      <div class="form-actions">
+        <button type="button" id="restore-confirm">换一个键恢复</button>
+        <button type="button" id="restore-cancel" class="ghost">放弃恢复</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
