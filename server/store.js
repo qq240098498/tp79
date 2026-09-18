@@ -9,6 +9,8 @@ const MAX_TRANSLATION_LENGTH = 200;
 const MAX_NOTE_LENGTH = 200;
 const MAX_OPERATOR_LENGTH = 40;
 const UNNAMED = '未署名';
+// 回收站里的文案保留 30 天，到期后随下一次读写被自动清除
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 // 初始数据：四种语言、四个模块的十五条文案。繁体与英语故意留了几条没译，
 // 日语整条语言处于停用状态，英语里还有一条把 {minutes} 占位符写丢了
@@ -265,6 +267,67 @@ function normalizeEntry(item, fallbackIndex) {
     updatedBy: typeof source.updatedBy === 'string' && source.updatedBy.trim() ? source.updatedBy.trim() : UNNAMED,
     createdAt,
     updatedAt: typeof source.updatedAt === 'string' && source.updatedAt ? source.updatedAt : createdAt,
+    // 这条文案历次从回收站恢复的记录，旧数据没有这段时补空数组
+    restoreRecords: Array.isArray(source.restoreRecords)
+      ? source.restoreRecords.map(normalizeRestoreRecord).filter(Boolean)
+      : [],
+  };
+}
+
+// 一次恢复留下的记录：原来的模块与键、恢复后实际使用的模块与键、谁在什么时候恢复的
+function normalizeRestoreRecord(item) {
+  const source = item && typeof item === 'object' ? item : {};
+  const restoredAt = typeof source.restoredAt === 'string' && source.restoredAt ? source.restoredAt : '';
+  if (!restoredAt) return null;
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `restore-${restoredAt}`,
+    originModule: typeof source.originModule === 'string' ? source.originModule : '',
+    originKey: typeof source.originKey === 'string' ? source.originKey : '',
+    restoredModule: typeof source.restoredModule === 'string' && source.restoredModule.trim()
+      ? source.restoredModule
+      : (typeof source.originModule === 'string' ? source.originModule : ''),
+    restoredKey: typeof source.restoredKey === 'string' && source.restoredKey.trim()
+      ? source.restoredKey
+      : (typeof source.originKey === 'string' ? source.originKey : ''),
+    restoredBy: typeof source.restoredBy === 'string' && source.restoredBy.trim() ? source.restoredBy.trim() : UNNAMED,
+    restoredAt,
+  };
+}
+
+// 回收站条目：除文案自身内容外，记下删除人、删除时间与到期时间；
+// 译文按原样保留全部语言，哪怕某种语言后来被删除，回收站里仍然看得到
+function normalizeTrashItem(item, fallbackIndex) {
+  const source = item && typeof item === 'object' ? item : {};
+  const deletedAt = typeof source.deletedAt === 'string' && source.deletedAt
+    ? source.deletedAt
+    : new Date().toISOString();
+  const deletedTime = Date.parse(deletedAt);
+  const fallbackExpiry = Number.isFinite(deletedTime)
+    ? new Date(deletedTime + TRASH_RETENTION_MS).toISOString()
+    : deletedAt;
+  const translations = {};
+  if (source.translations && typeof source.translations === 'object' && !Array.isArray(source.translations)) {
+    Object.keys(source.translations).forEach((code) => {
+      const value = source.translations[code];
+      if (typeof value === 'string') translations[code] = value;
+    });
+  }
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `trash-${fallbackIndex + 1}`,
+    module: typeof source.module === 'string' && source.module.trim() ? source.module.trim() : 'default',
+    key: typeof source.key === 'string' && source.key.trim() ? source.key.trim() : `entry.deleted.${fallbackIndex + 1}`,
+    translations,
+    note: typeof source.note === 'string' ? source.note : '',
+    updatedBy: typeof source.updatedBy === 'string' && source.updatedBy.trim() ? source.updatedBy.trim() : UNNAMED,
+    createdAt: typeof source.createdAt === 'string' && source.createdAt ? source.createdAt : deletedAt,
+    updatedAt: typeof source.updatedAt === 'string' && source.updatedAt ? source.updatedAt : deletedAt,
+    deletedBy: typeof source.deletedBy === 'string' && source.deletedBy.trim() ? source.deletedBy.trim() : UNNAMED,
+    deletedAt,
+    expiresAt: typeof source.expiresAt === 'string' && source.expiresAt ? source.expiresAt : fallbackExpiry,
+    // 这条文案历次恢复的记录在再次删除时一并带进回收站，恢复后仍能看到完整历史
+    restoreRecords: Array.isArray(source.restoreRecords)
+      ? source.restoreRecords.map(normalizeRestoreRecord).filter(Boolean)
+      : [],
   };
 }
 
@@ -311,14 +374,31 @@ function normalize(raw) {
         })
     : [];
 
-  return { languages: dedupedLanguages, entries };
+  // 回收站条目保留全部译文，连已经被删掉的语言那一格也不动，
+  // 这样回收站里能看清删除当时各语言的完整内容；超过保留期的条目在此一并清掉
+  const now = Date.now();
+  const trash = Array.isArray(source.trash)
+    ? source.trash
+        .map((item, index) => normalizeTrashItem(item, index))
+        .filter((item) => item.id)
+        .filter((item) => {
+          const expiry = Date.parse(item.expiresAt);
+          return !Number.isFinite(expiry) || expiry > now;
+        })
+    : [];
+
+  return { languages: dedupedLanguages, entries, trash };
 }
 
-// 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
+// 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写；
+// 读到时若发现回收站有已过保留期的条目，整理后立刻落盘完成自动清除
 function load() {
   try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    return normalize(JSON.parse(raw));
+    const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const data = normalize(raw);
+    const rawTrashCount = Array.isArray(raw.trash) ? raw.trash.length : 0;
+    if (rawTrashCount !== data.trash.length) save(data);
+    return data;
   } catch (err) {
     const data = seedData();
     save(data);
@@ -341,9 +421,12 @@ module.exports = {
   normalize,
   normalizeLanguage,
   normalizeEntry,
+  normalizeTrashItem,
+  normalizeRestoreRecord,
   MAX_TRANSLATION_LENGTH,
   MAX_NOTE_LENGTH,
   MAX_OPERATOR_LENGTH,
+  TRASH_RETENTION_MS,
   UNNAMED,
   DATA_FILE,
 };

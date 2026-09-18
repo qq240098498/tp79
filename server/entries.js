@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { load, save, MAX_TRANSLATION_LENGTH, MAX_NOTE_LENGTH, MAX_OPERATOR_LENGTH, UNNAMED } = require('./store');
+const { load, save, MAX_TRANSLATION_LENGTH, MAX_NOTE_LENGTH, MAX_OPERATOR_LENGTH, TRASH_RETENTION_MS, UNNAMED } = require('./store');
 const { ApiError, pickText } = require('./errors');
 
 const MODULE_PATTERN = /^[a-z][a-z0-9-]{0,29}$/;
@@ -181,13 +181,25 @@ function updateEntry(id, payload) {
   return found;
 }
 
-function deleteEntry(id) {
+// 删除不再直接抹掉，而是整条搬进回收站，并记下删除人与到期时间；
+// 操作者留空时按未署名记录，和新增/修改文案保持一致
+function deleteEntry(id, operatorName) {
   const data = load();
   const index = data.entries.findIndex((item) => item.id === id);
   if (index === -1) throw new ApiError(404, 'ENTRY_NOT_FOUND', '这条文案不存在或已被删除', '');
   const [removed] = data.entries.splice(index, 1);
+  const operator = validateOperator(operatorName, UNNAMED);
+  const now = Date.now();
+  const deletedAt = new Date(now).toISOString();
+  data.trash = data.trash || [];
+  data.trash.push({
+    ...removed,
+    deletedBy: operator,
+    deletedAt,
+    expiresAt: new Date(now + TRASH_RETENTION_MS).toISOString(),
+  });
   save(data);
-  return { id: removed.id, key: removed.key };
+  return { id: removed.id, key: removed.key, deletedAt, expiresAt: new Date(now + TRASH_RETENTION_MS).toISOString() };
 }
 
 module.exports = {

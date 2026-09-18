@@ -76,7 +76,25 @@ app.patch('/api/entries/:id', (req, res) => {
 
 app.delete('/api/entries/:id', (req, res) => {
   try {
-    res.json(api.deleteEntry(req.params.id));
+    // 删除时把顶栏的操作者一起带上，回收站里要记下是谁删的
+    res.json(api.deleteEntry(req.params.id, req.body && req.body.operator));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 回收站：默认只读查看；恢复走专门的动作接口，冲突时返回 409 与冲突双方
+app.get('/api/trash', (req, res) => {
+  const result = api.listTrash({
+    module: api.readQuery(req.query, 'module'),
+    keyword: api.readQuery(req.query, 'keyword'),
+  });
+  res.json(result);
+});
+
+app.post('/api/trash/:id/restore', (req, res) => {
+  try {
+    res.json(api.restoreTrashItem(req.params.id, req.body));
   } catch (err) {
     sendError(res, err);
   }
@@ -90,9 +108,9 @@ app.use('/api', (_req, res) => {
 // 统一错误出口：业务异常按状态码与错误码返回，其余按服务异常处理
 function sendError(res, err) {
   if (err instanceof api.ApiError) {
-    return res.status(err.status).json({
-      error: { code: err.code, message: err.message, field: err.field },
-    });
+    const body = { error: { code: err.code, message: err.message, field: err.field } };
+    if (err.details) body.error.details = err.details;
+    return res.status(err.status).json(body);
   }
   console.error('[tp79] 处理请求时出现未预期的问题：', err);
   return res.status(500).json({

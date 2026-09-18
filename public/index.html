@@ -64,6 +64,7 @@
           <button type="button" id="filter-apply">筛选</button>
           <button type="button" id="filter-reset" class="ghost">重置</button>
           <button type="button" id="entry-refresh" class="ghost">刷新</button>
+          <button type="button" id="trash-open" class="ghost">回收站<span class="badge hidden" id="trash-count">0</span></button>
           <button type="button" id="entry-new">新建文案</button>
         </div>
       </div>
@@ -92,6 +93,65 @@
       </form>
     </section>
   </main>
+
+  <!-- 回收站：只读，只能查看与恢复；展示原模块/键、全部译文、删除人与时间、剩余保留时间 -->
+  <div class="overlay hidden" id="trash-overlay">
+    <div class="dialog trash-dialog">
+      <div class="dialog-head">
+        <div>
+          <h2>回收站</h2>
+          <p class="panel-tip">删除的文案会先移入回收站，保留 30 天，到期自动清除；回收站内容只读，仅支持恢复，不能编辑</p>
+        </div>
+        <div class="filters">
+          <select id="trash-filter-module"><option value="">全部模块</option></select>
+          <input id="trash-filter-keyword" placeholder="搜索文案键或译文" maxlength="60">
+          <button type="button" id="trash-filter-apply">筛选</button>
+          <button type="button" id="trash-filter-reset" class="ghost">重置</button>
+          <button type="button" id="trash-refresh" class="ghost">刷新</button>
+          <button type="button" id="trash-close" class="ghost">关闭</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="grid trash-grid">
+          <thead>
+            <tr>
+              <th>原模块</th>
+              <th>原文案键</th>
+              <th>全部译文</th>
+              <th>删除信息</th>
+              <th>距离自动清除</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="trash-body"></tbody>
+        </table>
+      </div>
+      <p class="empty-tip hidden" id="trash-empty">回收站是空的，删除的文案会先出现在这里</p>
+      <p class="trash-status" id="trash-status"></p>
+    </div>
+  </div>
+
+  <!-- 恢复冲突：原模块与键已被新文案占用时，当场指出冲突，让操作者换一个键再恢复或放弃 -->
+  <div class="overlay hidden" id="restore-overlay">
+    <div class="dialog restore-dialog">
+      <div class="dialog-head">
+        <h2>恢复时发现键冲突</h2>
+      </div>
+      <div id="restore-conflict-info" class="conflict-info"></div>
+      <form id="restore-form" autocomplete="off">
+        <div class="form-row">
+          <label data-field="restore.module">恢复到模块<input id="restore-module" maxlength="30"></label>
+          <label data-field="restore.key">换一个文案键<input id="restore-key" maxlength="120"></label>
+        </div>
+        <p class="panel-tip">换成新键后恢复，原文案键与删除记录仍会保留；也可以放弃这次恢复</p>
+        <p class="trash-status" id="restore-status"></p>
+        <div class="form-actions">
+          <button type="submit" id="restore-confirm">换这个键恢复</button>
+          <button type="button" id="restore-cancel" class="ghost">放弃恢复</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

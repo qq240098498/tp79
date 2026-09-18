@@ -376,3 +376,162 @@ label.full input {
   display: flex;
   gap: 10px;
 }
+
+/* 回收站入口角标 */
+.badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* 弹层遮罩与对话框 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 41, 51, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px;
+  z-index: 20;
+  overflow-y: auto;
+}
+
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 20px 20px;
+  width: 100%;
+  box-shadow: 0 10px 30px rgba(31, 41, 51, 0.18);
+}
+
+.trash-dialog {
+  max-width: 1080px;
+}
+
+.restore-dialog {
+  max-width: 620px;
+  margin-top: 8vh;
+}
+
+.dialog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dialog-head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* 回收站表格：译文一栏展开显示，不省略 */
+table.trash-grid td {
+  max-width: none;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.trash-translations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+}
+
+.trash-translation {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.trash-translation > div {
+  grid-column: 2;
+  word-break: break-word;
+}
+
+.missing-inline {
+  color: #a6b0bb;
+  font-style: italic;
+}
+
+.trash-meta {
+  min-width: 130px;
+}
+
+.trash-meta .minor {
+  color: var(--ink-soft);
+}
+
+.trash-countdown {
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.trash-countdown.urgent {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* 回收站与恢复弹窗里的状态行：默认不占位，成功/失败时才显色 */
+.trash-status {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.trash-status.ok {
+  color: var(--ok);
+}
+
+.trash-status.error {
+  color: var(--danger);
+}
+
+/* 恢复冲突说明 */
+.conflict-info {
+  border: 1px solid #f0c2c2;
+  background: #fdeeee;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  color: #7a2b2b;
+  font-size: 13px;
+}
+
+.conflict-info p {
+  margin: 6px 0;
+}
+
+.conflict-info .conflict-current {
+  font-weight: 600;
+}
+
+/* 正常列表里的恢复记录列 */
+.restore-cell {
+  min-width: 240px;
+  white-space: normal;
+}
+
+.restore-line {
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.restore-line:last-child {
+  margin-bottom: 0;
+}
